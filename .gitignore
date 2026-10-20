@@ -396,3 +396,9 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Backup written by the config editor
+emulator/config.json.bak
+
+# Local secrets (copy emulator/.env.example to emulator/.env)
+emulator/.env

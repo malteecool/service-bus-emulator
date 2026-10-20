@@ -1,0 +1,23 @@
+{
+  "name": "service-bus-mock",
+  "version": "1.0.0",
+  "description": "Mock integration layer + UI for the Azure Service Bus emulator",
+  "scripts": {
+    "dev": "node --watch --import tsx src/index.ts",
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc"
+  },
+  "type": "module",
+  "dependencies": {
+    "@azure/service-bus": "^7.10.0",
+    "@hono/node-server": "^2.1.5",
+    "ajv": "^8.20.0",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}

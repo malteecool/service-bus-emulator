@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Service Bus Mock</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Service Bus Mock</h1>
+      <span id="conn" class="badge">connecting…</span>
+      <div id="emulator" class="row">
+        <span class="label">Emulator</span>
+        <span id="emu-state" class="badge" title="">checking…</span>
+        <button class="secondary" data-action="up">Start</button>
+        <button class="secondary" data-action="down">Stop</button>
+        <button class="secondary" data-action="restart">Restart</button>
+        <button class="secondary" data-action="pull" title="Pull the latest emulator and SQL images (then Start to apply)">Pull latest</button>
+        <button class="secondary" id="emu-logs">Logs</button>
+        <button class="secondary" id="edit-config">Edit config</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel" id="send-panel">
+        <h2>Send</h2>
+        <form id="send-form">
+          <label>Target <select name="target" required></select></label>
+          <label class="grow">Body
+            <textarea name="body" rows="6" spellcheck="false">{ "hello": "world" }</textarea>
+          </label>
+          <div class="row">
+            <label class="check"><input type="checkbox" name="json" checked /> JSON</label>
+            <label>Count <input type="number" name="count" value="1" min="1" max="1000" /></label>
+          </div>
+          <details>
+            <summary>Message properties</summary>
+            <div class="grid">
+              <label>messageId <input name="messageId" /></label>
+              <label>correlationId <input name="correlationId" /></label>
+              <label>subject <input name="subject" /></label>
+              <label>replyTo <input name="replyTo" list="target-names" /></label>
+              <label>sessionId <input name="sessionId" /></label>
+              <label>replyToSessionId <input name="replyToSessionId" /></label>
+              <label>to <input name="to" /></label>
+              <label>contentType <input name="contentType" placeholder="auto" /></label>
+            </div>
+            <label>Application properties (JSON object)
+              <textarea name="applicationProperties" rows="2" spellcheck="false" placeholder='{ "prop3": "value3" }'></textarea>
+            </label>
+          </details>
+          <div class="row">
+            <button type="submit">Send</button>
+            <select id="templates" title="Saved templates"><option value="">Templates…</option></select>
+            <button type="button" id="save-template" class="secondary">Save as template</button>
+          </div>
+          <p id="send-status" class="status"></p>
+        </form>
+        <datalist id="target-names"></datalist>
+      </section>
+
+      <section class="panel" id="responders-panel">
+        <div class="panel-head">
+          <h2>Mock responders</h2>
+          <button id="save-defaults" class="secondary" title="Write current settings to responders.json">Save as defaults</button>
+        </div>
+        <div id="responders"></div>
+      </section>
+
+      <section class="panel" id="activity-panel">
+        <div class="panel-head">
+          <h2>Activity</h2>
+          <div class="row">
+            <input id="filter" placeholder="Filter…" />
+            <button id="clear" class="secondary">Clear</button>
+          </div>
+        </div>
+        <ol id="activity"></ol>
+      </section>
+    </main>
+
+    <dialog id="peek-dialog">
+      <div class="panel-head">
+        <h2 id="peek-title"></h2>
+        <div class="row">
+          <button id="peek-purge" class="danger">Purge</button>
+          <button id="peek-refresh" class="secondary">Refresh</button>
+          <button id="peek-close" class="secondary">Close</button>
+        </div>
+      </div>
+      <ol id="peek-list"></ol>
+    </dialog>
+
+    <dialog id="logs-dialog">
+      <div class="panel-head">
+        <h2>Emulator logs</h2>
+        <div class="row">
+          <select id="logs-service">
+            <option value="emulator">emulator</option>
+            <option value="sqledge">sqledge</option>
+          </select>
+          <button id="logs-refresh" class="secondary">Refresh</button>
+          <button id="logs-close" class="secondary">Close</button>
+        </div>
+      </div>
+      <pre id="logs-output" class="logs"></pre>
+    </dialog>
+
+    <dialog id="config-dialog">
+      <div class="panel-head">
+        <h2>Emulator config <span id="cfg-dirty" class="badge busy" hidden>unsaved</span></h2>
+        <button id="cfg-close" class="secondary">Close</button>
+      </div>
+      <div class="cfg-body">
+        <nav id="cfg-tree"></nav>
+        <section id="cfg-editor"></section>
+      </div>
+      <div id="cfg-messages"></div>
+      <div class="cfg-actions row">
+        <button id="cfg-discard" class="secondary">Discard changes</button>
+        <span class="spacer"></span>
+        <button id="cfg-save" class="secondary" title="Write config.json. The emulator keeps running the old config until it's recreated.">Save</button>
+        <button id="cfg-apply" title="Write config.json and recreate the emulator containers to load it. Messages in the emulator are lost.">Save &amp; apply to emulator</button>
+      </div>
+    </dialog>
+
+    <template id="responder-tpl">
+      <div class="responder">
+        <div class="responder-head">
+          <strong class="name"></strong>
+          <span class="badge state"></span>
+          <span class="count"></span>
+        </div>
+        <div class="modes"></div>
+        <div class="row">
+          <label>Delay ms <input type="number" name="delayMs" min="0" max="55000" step="100" /></label>
+          <button class="secondary" data-peek="false">Peek</button>
+          <button class="secondary" data-peek="true">Peek DLQ</button>
+        </div>
+        <details class="reply-settings">
+          <summary>Reply settings</summary>
+          <label>Reply to (blank = message replyTo) <input name="replyTo" list="target-names" /></label>
+          <label>Reply subject (blank = same as request) <input name="replySubject" /></label>
+          <label>Reply body (blank = echo). Placeholders: {{body}}, {{body.x}}, {{props.x}}, {{messageId}}, {{correlationId}}, {{now}}
+            <textarea name="replyBody" rows="4" spellcheck="false"></textarea>
+          </label>
+          <label class="check"><input type="checkbox" name="replyJson" /> Reply body is JSON</label>
+          <label>Dead-letter reason <input name="deadLetterReason" /></label>
+        </details>
+      </div>
+    </template>
+
+    <script src="app.js" type="module"></script>
+    <script src="config-editor.js" type="module"></script>
+  </body>
+</html>
