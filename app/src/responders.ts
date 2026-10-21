@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ServiceBusReceivedMessage, ServiceBusReceiver } from "@azure/service-bus";
@@ -62,7 +63,7 @@ function lookup(path: string, root: unknown): unknown {
 
 /**
  * Replaces {{placeholders}} in a reply template. Available: {{messageId}}, {{correlationId}},
- * {{subject}}, {{now}}, {{body}} and {{body.some.path}}, {{props.someProperty}}.
+ * {{subject}}, {{now}}, {{uuid}} (new per reply), {{body}} and {{body.some.path}}, {{props.someProperty}}.
  * In JSON mode values are inserted as JSON (strings get quotes), so write `{"id": {{body.id}}}`.
  */
 export function renderTemplate(template: string, msg: ServiceBusReceivedMessage, json: boolean): string {
@@ -71,6 +72,7 @@ export function renderTemplate(template: string, msg: ServiceBusReceivedMessage,
     correlationId: msg.correlationId?.toString(),
     subject: msg.subject,
     now: new Date().toISOString(),
+    uuid: randomUUID(),
     body: normalizeBody(msg.body),
     props: msg.applicationProperties ?? {},
   };

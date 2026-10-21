@@ -64,7 +64,7 @@ Open http://localhost:3000.
 
 *Delay ms* waits before acting on each message, to simulate a slow downstream system. Keep it below the entity's `LockDuration`.
 
-The reply body is a template. Leave it blank to echo the request. Placeholders: `{{body}}`, `{{body.some.path}}`, `{{props.someProperty}}`, `{{messageId}}`, `{{correlationId}}`, `{{subject}}`, `{{now}}`. With *Reply body is JSON* checked, values are inserted as JSON, so don't quote them:
+The reply body is a template. Leave it blank to echo the request. Placeholders: `{{body}}`, `{{body.some.path}}`, `{{props.someProperty}}`, `{{messageId}}`, `{{correlationId}}`, `{{subject}}`, `{{now}}`, `{{uuid}}` (a new random ID per reply). With *Reply body is JSON* checked, values are inserted as JSON, so don't quote them:
 
 ```json
 { "orderId": {{body.orderId}}, "status": "accepted", "processedAt": {{now}} }
