@@ -44,11 +44,23 @@ Open http://localhost:3000.
 | `EMULATOR_CONFIG` | `../emulator/config.json` | Where queue/topic names are read from |
 | `PORT` | `3000` | UI/API port |
 | `RESPONDERS_FILE` | `responders.json` | Saved responder defaults |
+| `ENVIRONMENTS_FILE` | `environments.json` | Saved environment tabs (connection strings) |
 | `CONTAINER_ENGINE` | `auto` | `docker`, `podman` or `auto` |
 | `EMULATOR_COMPOSE` | `../emulator/docker-compose.yaml` | Compose file used by the Emulator controls |
 | `EMULATOR_HTTP_PORT` | `5300` | Emulator health/management port |
 
 ## Using the UI
+
+### Environments (tabs)
+
+The tabs at the top switch between environments:
+
+- **Local (emulator)** is always there: the emulator from `emulator/config.json`, with mock responders, purge, config editing and the Docker/Podman controls.
+- **+ Add environment** connects a real Azure Service Bus namespace (e.g. QA) with a namespace-level connection string. Queues, topics and subscriptions are listed through the management API, so the connection string needs **Manage** rights. The list shows active and dead-lettered message counts; **Refresh** updates them.
+
+Real namespaces are **read-only**: you can send and peek, but responders and purge are disabled (the server refuses them too), so the mock never takes messages that real services need. Each tab has its own activity feed.
+
+Connection strings are stored in `app/environments.json`, which is git-ignored, and are never sent to the browser.
 
 **Send**: pick a queue or topic, write a body (JSON or text), optionally set `correlationId`, `replyTo`, `subject`, application properties and so on, and send one or many. Save frequently used messages as templates (stored in your browser).
 
@@ -92,9 +104,10 @@ The reply body is a template. Leave it blank to echo the request. Placeholders: 
 
 ## API
 
-The UI is a thin client over a JSON API, which is handy for scripts and tests:
+The UI is a thin client over a JSON API, which is handy for scripts and tests. Entity routes take `?env=<id>` (default `local`):
 
-- `GET /api/entities`: send targets, receive sources, modes
+- `GET /api/environments`, `POST /api/environments` with `{ name, connectionString }`, `PATCH /api/environments/<id>`, `DELETE /api/environments/<id>`, `POST /api/environments/<id>/refresh`
+- `GET /api/entities`: send targets, receive sources, modes (and message counts for real namespaces)
 - `POST /api/send`: `{ target, body, json?, count?, messageId?, correlationId?, subject?, replyTo?, sessionId?, applicationProperties? }`
 - `GET /api/responders`, `PATCH /api/responders?id=<source>` with a partial config, `POST /api/responders/save`
 - `GET /api/peek?id=<source>&dlq=true|false`, `POST /api/purge?id=<source>&dlq=true|false`

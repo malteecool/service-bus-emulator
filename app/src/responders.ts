@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ServiceBusReceivedMessage, ServiceBusReceiver } from "@azure/service-bus";
-import { createReceiver, errorMessage, getSender } from "./bus.ts";
+import { errorMessage, localBus } from "./bus.ts";
 import type { ReceiveSource } from "./config.ts";
 import { normalizeBody, record, toView } from "./events.ts";
 
@@ -101,7 +101,7 @@ async function reply(r: Responder, msg: ServiceBusReceivedMessage): Promise<void
     subject: config.replySubject || msg.subject,
     sessionId: msg.replyToSessionId,
   };
-  await getSender(target).sendMessages(replyMessage);
+  await localBus.getSender(target).sendMessages(replyMessage);
   record("replied", target, `reply to ${r.source.id}`, toView(replyMessage));
 }
 
@@ -146,7 +146,7 @@ async function handle(r: Responder, msg: ServiceBusReceivedMessage): Promise<voi
 }
 
 function start(r: Responder): void {
-  const receiver = createReceiver(r.source, { receiveMode: "peekLock" });
+  const receiver = localBus.createReceiver(r.source, { receiveMode: "peekLock" });
   r.receiver = receiver;
   // The SDK keeps retrying while the emulator is down; don't log the same error every second.
   let lastError = "";
@@ -210,10 +210,6 @@ export function listResponders() {
     listening: !!r.receiver,
     handled: r.handled,
   }));
-}
-
-export function getSource(id: string): ReceiveSource | undefined {
-  return responders.get(id)?.source;
 }
 
 export async function updateResponder(id: string, patch: Partial<ResponderConfig>): Promise<ResponderConfig> {

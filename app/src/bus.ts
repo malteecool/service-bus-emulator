@@ -8,10 +8,6 @@ import {
 import { settings, type ReceiveSource } from "./config.ts";
 import { record, toView, type MessageView } from "./events.ts";
 
-// Fail fast: the default retry policy can take ~90s to report that the emulator isn't running.
-export const client = new ServiceBusClient(settings.connectionString, {
-  retryOptions: { maxRetries: 2, retryDelayInMs: 500, timeoutInMs: 10_000 },
-});
 
 function leafMessages(err: unknown): string[] {
   if (err instanceof AggregateError && err.errors.length) return err.errors.flatMap(leafMessages);
@@ -25,23 +21,6 @@ export function errorMessage(err: unknown): string {
     return `Can't reach the Service Bus emulator (${messages.join("; ")}). Is it running?`;
   }
   return messages.join("; ");
-}
-
-const senders = new Map<string, ServiceBusSender>();
-
-export function getSender(entity: string): ServiceBusSender {
-  let sender = senders.get(entity);
-  if (!sender) {
-    sender = client.createSender(entity);
-    senders.set(entity, sender);
-  }
-  return sender;
-}
-
-export function createReceiver(source: ReceiveSource, options?: ServiceBusReceiverOptions): ServiceBusReceiver {
-  return source.kind === "queue"
-    ? client.createReceiver(source.queue!, options)
-    : client.createReceiver(source.topic!, source.subscription!, options);
 }
 
 export interface SendRequest {
@@ -66,68 +45,102 @@ function clean<T extends object>(obj: T): T {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== "")) as T;
 }
 
-export async function send(req: SendRequest): Promise<MessageView[]> {
-  const body = req.json ? JSON.parse(req.body) : req.body;
-  const count = Math.max(1, Math.min(req.count ?? 1, 1000));
-  const messages: ServiceBusMessage[] = [];
-  for (let i = 0; i < count; i++) {
-    messages.push(
-      clean({
-        body,
-        contentType: req.contentType || (req.json ? "application/json" : "text/plain"),
-        // With count > 1 a fixed messageId would trip duplicate detection, so suffix it.
-        messageId: req.messageId && count > 1 ? `${req.messageId}-${i + 1}` : req.messageId,
-        correlationId: req.correlationId,
-        subject: req.subject,
-        replyTo: req.replyTo,
-        replyToSessionId: req.replyToSessionId,
-        sessionId: req.sessionId,
-        to: req.to,
-        applicationProperties:
-          req.applicationProperties && Object.keys(req.applicationProperties).length
-            ? req.applicationProperties
-            : undefined,
-      }),
-    );
+/** One Service Bus connection (the local emulator or a real namespace), keyed by environment id. */
+export class Bus {
+  readonly client: ServiceBusClient;
+  private readonly senders = new Map<string, ServiceBusSender>();
+
+  constructor(
+    readonly env: string,
+    connectionString: string,
+  ) {
+    // Fail fast: the default retry policy can take ~90s to report that the emulator isn't running.
+    this.client = new ServiceBusClient(connectionString, {
+      retryOptions: { maxRetries: 2, retryDelayInMs: 500, timeoutInMs: 10_000 },
+    });
   }
 
-  await getSender(req.target).sendMessages(messages);
-  const views = messages.map(toView);
-  for (const view of views) record("sent", req.target, "sent", view);
-  return views;
-}
-
-export async function peek(source: ReceiveSource, deadLetter: boolean, max = 50): Promise<MessageView[]> {
-  const receiver = createReceiver(source, deadLetter ? { subQueueType: "deadLetter" } : undefined);
-  try {
-    const messages = await receiver.peekMessages(max);
-    return messages.map(toView);
-  } finally {
-    await receiver.close();
-  }
-}
-
-/** Removes all messages by receiving them in receiveAndDelete mode. Returns the number removed. */
-export async function purge(source: ReceiveSource, deadLetter: boolean): Promise<number> {
-  const receiver = createReceiver(source, {
-    receiveMode: "receiveAndDelete",
-    subQueueType: deadLetter ? "deadLetter" : undefined,
-  });
-  let removed = 0;
-  try {
-    for (;;) {
-      const batch = await receiver.receiveMessages(100, { maxWaitTimeInMs: 1000 });
-      if (batch.length === 0) break;
-      removed += batch.length;
+  getSender(entity: string): ServiceBusSender {
+    let sender = this.senders.get(entity);
+    if (!sender) {
+      sender = this.client.createSender(entity);
+      this.senders.set(entity, sender);
     }
-  } finally {
-    await receiver.close();
+    return sender;
   }
-  record("info", source.id, `purged ${removed} message(s)${deadLetter ? " from dead-letter queue" : ""}`);
-  return removed;
+
+  createReceiver(source: ReceiveSource, options?: ServiceBusReceiverOptions): ServiceBusReceiver {
+    return source.kind === "queue"
+      ? this.client.createReceiver(source.queue!, options)
+      : this.client.createReceiver(source.topic!, source.subscription!, options);
+  }
+
+  async send(req: SendRequest): Promise<MessageView[]> {
+    const body = req.json ? JSON.parse(req.body) : req.body;
+    const count = Math.max(1, Math.min(req.count ?? 1, 1000));
+    const messages: ServiceBusMessage[] = [];
+    for (let i = 0; i < count; i++) {
+      messages.push(
+        clean({
+          body,
+          contentType: req.contentType || (req.json ? "application/json" : "text/plain"),
+          // With count > 1 a fixed messageId would trip duplicate detection, so suffix it.
+          messageId: req.messageId && count > 1 ? `${req.messageId}-${i + 1}` : req.messageId,
+          correlationId: req.correlationId,
+          subject: req.subject,
+          replyTo: req.replyTo,
+          replyToSessionId: req.replyToSessionId,
+          sessionId: req.sessionId,
+          to: req.to,
+          applicationProperties:
+            req.applicationProperties && Object.keys(req.applicationProperties).length
+              ? req.applicationProperties
+              : undefined,
+        }),
+      );
+    }
+
+    await this.getSender(req.target).sendMessages(messages);
+    const views = messages.map(toView);
+    for (const view of views) record("sent", req.target, "sent", view, this.env);
+    return views;
+  }
+
+  async peek(source: ReceiveSource, deadLetter: boolean, max = 50): Promise<MessageView[]> {
+    const receiver = this.createReceiver(source, deadLetter ? { subQueueType: "deadLetter" } : undefined);
+    try {
+      const messages = await receiver.peekMessages(max);
+      return messages.map(toView);
+    } finally {
+      await receiver.close();
+    }
+  }
+
+  /** Removes all messages by receiving them in receiveAndDelete mode. Returns the number removed. */
+  async purge(source: ReceiveSource, deadLetter: boolean): Promise<number> {
+    const receiver = this.createReceiver(source, {
+      receiveMode: "receiveAndDelete",
+      subQueueType: deadLetter ? "deadLetter" : undefined,
+    });
+    let removed = 0;
+    try {
+      for (;;) {
+        const batch = await receiver.receiveMessages(100, { maxWaitTimeInMs: 1000 });
+        if (batch.length === 0) break;
+        removed += batch.length;
+      }
+    } finally {
+      await receiver.close();
+    }
+    record("info", source.id, `purged ${removed} message(s)${deadLetter ? " from dead-letter queue" : ""}`, undefined, this.env);
+    return removed;
+  }
+
+  async close(): Promise<void> {
+    await Promise.allSettled([...this.senders.values()].map((s) => s.close()));
+    await this.client.close();
+  }
 }
 
-export async function closeAll(): Promise<void> {
-  await Promise.allSettled([...senders.values()].map((s) => s.close()));
-  await client.close();
-}
+/** The local emulator; mock responders always run against this one. */
+export const localBus = new Bus("local", settings.connectionString);

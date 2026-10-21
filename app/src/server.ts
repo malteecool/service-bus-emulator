@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { streamSSE } from "hono/streaming";
-import { errorMessage, peek, purge, send, type SendRequest } from "./bus.ts";
-import { getEntities, reloadEntities, settings } from "./config.ts";
+import { errorMessage, type SendRequest } from "./bus.ts";
+import { reloadEntities, settings } from "./config.ts";
 import * as containers from "./containers.ts";
+import * as environments from "./environments.ts";
 import { readConfig, schema, validateConfig, writeConfig, type EmulatorConfig } from "./emulator-config.ts";
 import { clearHistory, getHistory, record, subscribe, type Activity } from "./events.ts";
-import { getSource, listResponders, MODES, saveDefaults, syncResponders, updateResponder } from "./responders.ts";
+import { listResponders, MODES, saveDefaults, syncResponders, updateResponder } from "./responders.ts";
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -25,13 +26,26 @@ export function createApp(): Hono {
     await next();
   });
 
-  app.get("/api/entities", (c) =>
-    c.json({ ...getEntities(), modes: MODES, configPath: settings.emulatorConfigPath }),
-  );
+  // Environments (tabs). Every entity route below takes ?env=<id>, defaulting to "local".
+  app.get("/api/environments", (c) => c.json(environments.list()));
+  app.post("/api/environments", async (c) => c.json(await environments.add(await c.req.json()), 201));
+  app.patch("/api/environments/:id", async (c) => c.json(await environments.update(c.req.param("id"), await c.req.json())));
+  app.delete("/api/environments/:id", async (c) => {
+    await environments.remove(c.req.param("id"));
+    return c.body(null, 204);
+  });
+  app.post("/api/environments/:id/refresh", async (c) => c.json(await environments.refresh(c.req.param("id"))));
+
+  const envOf = (c: { req: { query: (k: string) => string | undefined } }) => environments.get(c.req.query("env") ?? "local");
+
+  app.get("/api/entities", (c) => {
+    const env = envOf(c);
+    return c.json({ ...env.entities, modes: MODES, configPath: settings.emulatorConfigPath });
+  });
 
   app.post("/api/send", async (c) => {
     const req = await c.req.json<SendRequest>();
-    const sent = await send(req);
+    const sent = await envOf(c).bus.send(req);
     return c.json({ sent: sent.length });
   });
 
@@ -46,15 +60,19 @@ export function createApp(): Hono {
   app.post("/api/responders/save", (c) => c.json({ path: saveDefaults() }));
 
   app.get("/api/peek", async (c) => {
-    const source = getSource(c.req.query("id") ?? "");
+    const env = envOf(c);
+    const source = environments.findSource(env, c.req.query("id") ?? "");
     if (!source) return c.json({ error: "unknown source" }, 404);
-    return c.json(await peek(source, c.req.query("dlq") === "true"));
+    return c.json(await env.bus.peek(source, c.req.query("dlq") === "true"));
   });
 
   app.post("/api/purge", async (c) => {
-    const source = getSource(c.req.query("id") ?? "");
+    const env = envOf(c);
+    // Real namespaces are read-only: purging could delete messages real services need.
+    if (env.readOnly) return c.json({ error: `${env.name} is read-only; purge is disabled` }, 403);
+    const source = environments.findSource(env, c.req.query("id") ?? "");
     if (!source) return c.json({ error: "unknown source" }, 404);
-    return c.json({ removed: await purge(source, c.req.query("dlq") === "true") });
+    return c.json({ removed: await env.bus.purge(source, c.req.query("dlq") === "true") });
   });
 
   app.get("/api/emulator", async (c) => c.json(await containers.status()));
@@ -85,7 +103,7 @@ export function createApp(): Hono {
 
   app.get("/api/activity", (c) => c.json(getHistory()));
   app.delete("/api/activity", (c) => {
-    clearHistory();
+    clearHistory(c.req.query("env"));
     return c.body(null, 204);
   });
 

@@ -24,6 +24,8 @@ export interface MessageView {
 export interface Activity {
   id: number;
   time: string;
+  /** Environment (tab) the activity belongs to; "local" is the emulator. */
+  env: string;
   kind: ActivityKind;
   /** Queue/topic/subscription the activity relates to. */
   entity: string;
@@ -37,13 +39,13 @@ const history: Activity[] = [];
 const listeners = new Set<(a: Activity) => void>();
 let nextId = 1;
 
-export function record(kind: ActivityKind, entity: string, text: string, message?: MessageView): Activity {
-  const activity: Activity = { id: nextId++, time: new Date().toISOString(), kind, entity, text, message };
+export function record(kind: ActivityKind, entity: string, text: string, message?: MessageView, env = "local"): Activity {
+  const activity: Activity = { id: nextId++, time: new Date().toISOString(), env, kind, entity, text, message };
   history.push(activity);
   if (history.length > MAX_HISTORY) history.shift();
   for (const l of listeners) l(activity);
   const tag = kind.toUpperCase().padEnd(8);
-  console.log(`${activity.time} ${tag} ${entity} ${text}`);
+  console.log(`${activity.time} ${tag} [${env}] ${entity} ${text}`);
   return activity;
 }
 
@@ -51,8 +53,10 @@ export function getHistory(): Activity[] {
   return [...history];
 }
 
-export function clearHistory(): void {
-  history.length = 0;
+/** Clears one environment's activity, or everything when env is omitted. */
+export function clearHistory(env?: string): void {
+  const keep = env ? history.filter((a) => a.env !== env) : [];
+  history.splice(0, history.length, ...keep);
 }
 
 export function subscribe(listener: (a: Activity) => void): () => void {

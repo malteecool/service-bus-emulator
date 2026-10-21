@@ -402,3 +402,6 @@ emulator/config.json.bak
 
 # Local secrets (copy emulator/.env.example to emulator/.env)
 emulator/.env
+
+# Environment tabs: holds connection strings to real namespaces
+app/environments.json

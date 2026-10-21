@@ -27,6 +27,8 @@
       </div>
     </header>
 
+    <nav id="tabs" aria-label="Environments"></nav>
+
     <main>
       <section class="panel" id="send-panel">
         <h2>Send</h2>
@@ -71,6 +73,20 @@
           <button id="save-defaults" class="secondary" title="Write current settings to responders.json">Save as defaults</button>
         </div>
         <div id="responders"></div>
+      </section>
+
+      <section class="panel" id="env-panel" hidden>
+        <div class="panel-head">
+          <h2>Queues &amp; subscriptions</h2>
+          <div class="row">
+            <button id="env-refresh" class="secondary" title="List entities and message counts again">Refresh</button>
+            <button id="env-edit" class="secondary">Edit</button>
+          </div>
+        </div>
+        <p class="readonly-note">Read-only: this is a real namespace. You can send and peek, but responders and purge are disabled so the mock can't take messages from real services.</p>
+        <p id="env-info" class="muted"></p>
+        <p id="env-error" class="err"></p>
+        <ul id="env-entities"></ul>
       </section>
 
       <section class="panel" id="activity-panel">
@@ -128,6 +144,26 @@
         <button id="cfg-save" class="secondary" title="Write config.json. The emulator keeps running the old config until it's recreated.">Save</button>
         <button id="cfg-apply" title="Write config.json and recreate the emulator containers to load it. Messages in the emulator are lost.">Save &amp; apply to emulator</button>
       </div>
+    </dialog>
+
+    <dialog id="env-dialog">
+      <form id="env-form" method="dialog">
+        <div class="panel-head">
+          <h2 id="env-dialog-title">Add environment</h2>
+        </div>
+        <label>Name <input name="name" required placeholder="QA" /></label>
+        <label>Connection string
+          <input name="connectionString" type="password" autocomplete="off" spellcheck="false" placeholder="Endpoint=sb://&lt;namespace&gt;.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=..." />
+          <small class="muted" id="env-cs-hint">Namespace-level, with Manage rights so queues and topics can be listed. Stored only in app/environments.json (git-ignored).</small>
+        </label>
+        <p id="env-form-error" class="err"></p>
+        <div class="row">
+          <button type="button" id="env-delete" class="danger" hidden>Remove environment</button>
+          <span class="spacer"></span>
+          <button type="button" id="env-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="env-submit">Add</button>
+        </div>
+      </form>
     </dialog>
 
     <template id="responder-tpl">

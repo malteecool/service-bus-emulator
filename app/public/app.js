@@ -28,13 +28,154 @@ function messageHtml(msg) {
   return `<dl class="props">${props}</dl><pre>${esc(formatBody(msg.body))}</pre>`;
 }
 
+// ---------- Environments (tabs) ----------
+
+const ENV_KEY = "sbmock.env";
+let environments = [];
+let currentEnv = "local";
+const envParam = (env = currentEnv) => `env=${encodeURIComponent(env)}`;
+const activeEnv = () => environments.find((e) => e.id === currentEnv) ?? environments[0];
+
+function renderTabs() {
+  $("#tabs").innerHTML =
+    environments
+      .map((e) => {
+        const tags = (e.readOnly ? '<span class="tab-tag">read-only</span>' : "") + (e.error ? '<span class="tab-tag err">!</span>' : "");
+        return `<button class="tab${e.id === currentEnv ? " active" : ""}" data-env="${esc(e.id)}" title="${esc(e.namespace)}">${esc(e.name)}${tags}</button>`;
+      })
+      .join("") + `<button class="tab add" id="tab-add" title="Add a real Service Bus namespace (read-only)">+ Add environment</button>`;
+}
+
+$("#tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".tab");
+  if (!tab) return;
+  if (tab.id === "tab-add") openEnvDialog();
+  else switchEnv(tab.dataset.env);
+});
+
+async function loadEnvironments() {
+  environments = await api("/api/environments");
+  if (!environments.some((e) => e.id === currentEnv)) currentEnv = "local";
+  renderTabs();
+}
+
+async function switchEnv(id) {
+  currentEnv = id;
+  try {
+    localStorage.setItem(ENV_KEY, id);
+  } catch {}
+  const env = activeEnv();
+  renderTabs();
+  $("#emulator").hidden = env.kind !== "emulator";
+  $("#responders-panel").hidden = env.readOnly;
+  $("#env-panel").hidden = !env.readOnly;
+  $("#send-status").textContent = "";
+  activityList.querySelectorAll("li").forEach(applyFilter);
+  await loadEntities();
+  if (env.readOnly) renderEnvPanel();
+}
+
+function renderEnvPanel() {
+  const env = activeEnv();
+  const refreshed = env.refreshedAt ? `, listed ${new Date(env.refreshedAt).toLocaleTimeString()}` : "";
+  $("#env-info").textContent = `${env.namespace}${refreshed}`;
+  $("#env-error").textContent = env.error ?? "";
+  const counts = entities.counts ?? {};
+  $("#env-entities").innerHTML = entities.sources.length
+    ? entities.sources
+        .map((s) => {
+          const c = counts[s.id] ?? {};
+          const dlq = c.deadLetter ? ` · <span class="dlq-count">${c.deadLetter} dead-lettered</span>` : "";
+          return `<li class="entity-row">
+            <div><strong>${esc(s.id)}</strong><div class="muted">${c.active ?? "?"} active${dlq}</div></div>
+            <div class="row">
+              <button class="secondary" data-peek-id="${esc(s.id)}" data-dlq="false">Peek</button>
+              <button class="secondary" data-peek-id="${esc(s.id)}" data-dlq="true">Peek DLQ</button>
+            </div>
+          </li>`;
+        })
+        .join("")
+    : `<li class="empty">${env.error ? "" : "No queues or subscriptions found."}</li>`;
+}
+
+$("#env-entities").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-peek-id]");
+  if (btn) openPeek(btn.dataset.peekId, btn.dataset.dlq === "true");
+});
+
+$("#env-refresh").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    await api(`/api/environments/${encodeURIComponent(currentEnv)}/refresh`, { method: "POST" });
+    await loadEnvironments();
+    await loadEntities();
+    renderEnvPanel();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Add / edit / remove environments
+const envDialog = $("#env-dialog");
+const envForm = $("#env-form");
+let editingEnv;
+
+function openEnvDialog(env) {
+  editingEnv = env;
+  envForm.reset();
+  $("#env-form-error").textContent = "";
+  $("#env-dialog-title").textContent = env ? `Edit ${env.name}` : "Add environment";
+  $("#env-submit").textContent = env ? "Save" : "Add";
+  $("#env-delete").hidden = !env;
+  envForm.elements.name.value = env?.name ?? "";
+  envForm.elements.connectionString.required = !env;
+  envForm.elements.connectionString.placeholder = env
+    ? `Leave blank to keep the current one (${env.namespace})`
+    : "Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...";
+  envDialog.showModal();
+}
+
+$("#env-edit").addEventListener("click", () => openEnvDialog(activeEnv()));
+$("#env-cancel").addEventListener("click", () => envDialog.close());
+
+envForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = JSON.stringify({ name: envForm.elements.name.value, connectionString: envForm.elements.connectionString.value });
+  const submit = $("#env-submit");
+  submit.disabled = true;
+  $("#env-form-error").textContent = editingEnv ? "Saving…" : "Connecting and listing entities…";
+  try {
+    const env = editingEnv
+      ? await api(`/api/environments/${encodeURIComponent(editingEnv.id)}`, { method: "PATCH", body })
+      : await api("/api/environments", { method: "POST", body });
+    envDialog.close();
+    await loadEnvironments();
+    await switchEnv(env.id);
+  } catch (err) {
+    $("#env-form-error").textContent = err.message;
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+$("#env-delete").addEventListener("click", async () => {
+  if (!confirm(`Remove ${editingEnv.name}? Its connection string is deleted from environments.json.`)) return;
+  await api(`/api/environments/${encodeURIComponent(editingEnv.id)}`, { method: "DELETE" });
+  envDialog.close();
+  await loadEnvironments();
+  await switchEnv("local");
+});
+
 // ---------- Entities & send form ----------
 
 let entities;
 const form = $("#send-form");
 
 async function loadEntities() {
-  entities = await api("/api/entities");
+  entities = await api(`/api/entities?${envParam()}`);
   const select = form.elements.target;
   select.innerHTML = entities.targets
     .map((t) => `<option value="${esc(t.name)}">${esc(t.name)} (${t.kind})</option>`)
@@ -67,9 +208,9 @@ form.addEventListener("submit", async (e) => {
   const status = $("#send-status");
   try {
     const req = readSendForm();
-    const { sent } = await api("/api/send", { method: "POST", body: JSON.stringify(req) });
+    const { sent } = await api(`/api/send?${envParam()}`, { method: "POST", body: JSON.stringify(req) });
     status.className = "status ok";
-    status.textContent = `Sent ${sent} message(s) to ${req.target}`;
+    status.textContent = `Sent ${sent} message(s) to ${req.target} (${activeEnv().name})`;
   } catch (err) {
     status.className = "status err";
     status.textContent = err.message;
@@ -184,8 +325,11 @@ const dialog = $("#peek-dialog");
 let peekState;
 
 async function openPeek(id, dlq) {
-  peekState = { id, dlq };
-  $("#peek-title").textContent = `${id}${dlq ? " (dead-letter)" : ""}`;
+  const env = activeEnv();
+  peekState = { id, dlq, env: env.id };
+  $("#peek-title").textContent = `${id}${dlq ? " (dead-letter)" : ""}${env.readOnly ? ` · ${env.name}` : ""}`;
+  // Real namespaces are read-only (the server refuses purge too).
+  $("#peek-purge").hidden = env.readOnly;
   dialog.showModal();
   await refreshPeek();
 }
@@ -194,7 +338,7 @@ async function refreshPeek() {
   const list = $("#peek-list");
   list.innerHTML = "<li>Loading…</li>";
   try {
-    const q = `id=${encodeURIComponent(peekState.id)}&dlq=${peekState.dlq}`;
+    const q = `id=${encodeURIComponent(peekState.id)}&dlq=${peekState.dlq}&${envParam(peekState.env)}`;
     const messages = await api(`/api/peek?${q}`);
     list.innerHTML = messages.length
       ? messages.map((m) => `<li>${messageHtml(m)}</li>`).join("")
@@ -208,7 +352,7 @@ $("#peek-refresh").addEventListener("click", refreshPeek);
 $("#peek-close").addEventListener("click", () => dialog.close());
 $("#peek-purge").addEventListener("click", async () => {
   if (!confirm(`Delete all messages in ${$("#peek-title").textContent}?`)) return;
-  const q = `id=${encodeURIComponent(peekState.id)}&dlq=${peekState.dlq}`;
+  const q = `id=${encodeURIComponent(peekState.id)}&dlq=${peekState.dlq}&${envParam(peekState.env)}`;
   await api(`/api/purge?${q}`, { method: "POST" });
   await refreshPeek();
 });
@@ -298,7 +442,7 @@ $("#logs-close").addEventListener("click", () => logsDialog.close());
 
 // The config editor saved new queues/topics: refresh send targets and responders.
 window.addEventListener("config-saved", async () => {
-  await loadEntities();
+  if (currentEnv === "local") await loadEntities();
   await loadResponders();
 });
 
@@ -310,6 +454,7 @@ const filterInput = $("#filter");
 function activityEl(a) {
   const li = document.createElement("li");
   li.className = `activity ${a.kind}`;
+  li.dataset.env = a.env ?? "local";
   li.dataset.search = JSON.stringify(a).toLowerCase();
   const time = new Date(a.time).toLocaleTimeString();
   const summary = `<span class="time">${time}</span><span class="kind">${a.kind}</span><span class="entity">${esc(a.entity)}</span><span class="text">${esc(a.text)}</span>`;
@@ -318,9 +463,10 @@ function activityEl(a) {
   return li;
 }
 
+/** Shows only the active tab's activity, narrowed by the filter box. */
 function applyFilter(li) {
   const q = filterInput.value.trim().toLowerCase();
-  li.hidden = q !== "" && !li.dataset.search.includes(q);
+  li.hidden = li.dataset.env !== currentEnv || (q !== "" && !li.dataset.search.includes(q));
 }
 
 function addActivity(a) {
@@ -330,8 +476,8 @@ function addActivity(a) {
 
 filterInput.addEventListener("input", () => activityList.querySelectorAll("li").forEach(applyFilter));
 $("#clear").addEventListener("click", async () => {
-  await api("/api/activity", { method: "DELETE" });
-  activityList.innerHTML = "";
+  await api(`/api/activity?${envParam()}`, { method: "DELETE" });
+  activityList.querySelectorAll(`li[data-env="${CSS.escape(currentEnv)}"]`).forEach((li) => li.remove());
 });
 
 function connectEvents() {
@@ -350,8 +496,12 @@ function connectEvents() {
 
 // ---------- Boot ----------
 
-await loadEntities();
+try {
+  currentEnv = localStorage.getItem(ENV_KEY) ?? "local";
+} catch {}
+await loadEnvironments();
 renderTemplates();
+await switchEnv(currentEnv); // loads entities, which responders need for the mode list
 await loadResponders();
 for (const a of await api("/api/activity")) addActivity(a);
 connectEvents();

@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
-import { closeAll } from "./bus.ts";
 import { reloadEntities, settings } from "./config.ts";
+import { closeAll, loadEnvironments } from "./environments.ts";
 import { stopAll, syncResponders } from "./responders.ts";
 import { createApp } from "./server.ts";
 
@@ -10,6 +10,7 @@ console.log(
 );
 
 await syncResponders(entities.sources);
+loadEnvironments();
 
 // Localhost only: the API can run docker commands.
 const server = serve({ fetch: createApp().fetch, port: settings.port, hostname: "127.0.0.1" }, (info) => {
