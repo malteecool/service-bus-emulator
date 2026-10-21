@@ -78,7 +78,8 @@ async function switchEnv(id) {
 function renderEnvPanel() {
   const env = activeEnv();
   const refreshed = env.refreshedAt ? `, listed ${new Date(env.refreshedAt).toLocaleTimeString()}` : "";
-  $("#env-info").textContent = `${env.namespace}${refreshed}`;
+  const scopes = env.connections.map((c) => (c.scope === "namespace" ? "namespace key" : `key for ${c.scope}`)).join(", ");
+  $("#env-info").textContent = `${env.namespace} · ${scopes}${refreshed}`;
   $("#env-error").textContent = env.error ?? "";
   const counts = entities.counts ?? {};
   $("#env-entities").innerHTML = entities.sources.length
@@ -131,10 +132,15 @@ function openEnvDialog(env) {
   $("#env-submit").textContent = env ? "Save" : "Add";
   $("#env-delete").hidden = !env;
   envForm.elements.name.value = env?.name ?? "";
-  envForm.elements.connectionString.required = !env;
-  envForm.elements.connectionString.placeholder = env
-    ? `Leave blank to keep the current one (${env.namespace})`
-    : "Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...";
+  const cs = envForm.elements.connectionStrings;
+  cs.required = !env;
+  if (!cs.dataset.placeholder) cs.dataset.placeholder = cs.placeholder;
+  cs.placeholder = env ? "Leave empty to keep the current connection strings. Anything entered here replaces all of them." : cs.dataset.placeholder;
+  // Keys are never sent to the browser; show what each existing string is scoped to.
+  $("#env-current").hidden = !env;
+  $("#env-current-list").innerHTML = (env?.connections ?? [])
+    .map((c) => `<li>${c.scope === "namespace" ? "whole namespace" : `<code>${esc(c.scope)}</code>`} · key <code>${esc(c.keyName)}</code></li>`)
+    .join("");
   envDialog.showModal();
 }
 
@@ -143,7 +149,7 @@ $("#env-cancel").addEventListener("click", () => envDialog.close());
 
 envForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const body = JSON.stringify({ name: envForm.elements.name.value, connectionString: envForm.elements.connectionString.value });
+  const body = JSON.stringify({ name: envForm.elements.name.value, connectionStrings: envForm.elements.connectionStrings.value });
   const submit = $("#env-submit");
   submit.disabled = true;
   $("#env-form-error").textContent = editingEnv ? "Saving…" : "Connecting and listing entities…";

@@ -267,3 +267,6 @@ main { height: calc(100vh - 45px - 38px); }
 .dlq-count { color: var(--warn); }
 #env-dialog { width: min(560px, 92vw); }
 #env-dialog .spacer { flex: 1; }
+#env-error { white-space: pre-line; }
+#env-current ul { margin: 4px 0 10px; padding-left: 18px; font-size: 12px; }
+#env-dialog textarea { width: 100%; }

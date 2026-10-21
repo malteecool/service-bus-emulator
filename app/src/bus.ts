@@ -45,25 +45,46 @@ function clean<T extends object>(obj: T): T {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== "")) as T;
 }
 
-/** One Service Bus connection (the local emulator or a real namespace), keyed by environment id. */
+/** The entity a connection string is scoped to (`EntityPath=`), or undefined for namespace-level ones. */
+export function entityPathOf(connectionString: string): string | undefined {
+  return /(?:^|;)\s*EntityPath=([^;]+)/i.exec(connectionString)?.[1]?.trim() || undefined;
+}
+
+/**
+ * Service Bus connections for one environment (the local emulator or a real namespace).
+ * Holds a namespace-level client and/or entity-level clients: a connection string with
+ * `EntityPath=orders` has a key that's only valid for the `orders` queue/topic, so it gets its own
+ * client that's used for that entity only.
+ */
 export class Bus {
-  readonly client: ServiceBusClient;
+  private namespaceClient?: ServiceBusClient;
+  private readonly entityClients = new Map<string, ServiceBusClient>();
   private readonly senders = new Map<string, ServiceBusSender>();
 
   constructor(
     readonly env: string,
-    connectionString: string,
+    connectionStrings: string | string[],
   ) {
     // Fail fast: the default retry policy can take ~90s to report that the emulator isn't running.
-    this.client = new ServiceBusClient(connectionString, {
-      retryOptions: { maxRetries: 2, retryDelayInMs: 500, timeoutInMs: 10_000 },
-    });
+    const options = { retryOptions: { maxRetries: 2, retryDelayInMs: 500, timeoutInMs: 10_000 } };
+    for (const cs of [connectionStrings].flat()) {
+      const entity = entityPathOf(cs);
+      if (entity) this.entityClients.set(entity.toLowerCase(), new ServiceBusClient(cs, options));
+      else this.namespaceClient ??= new ServiceBusClient(cs, options);
+    }
+  }
+
+  /** The client allowed to access `entity` (a queue or topic name). */
+  clientFor(entity: string): ServiceBusClient {
+    const client = this.entityClients.get(entity.toLowerCase()) ?? this.namespaceClient;
+    if (!client) throw new Error(`No connection string in this environment covers "${entity}"`);
+    return client;
   }
 
   getSender(entity: string): ServiceBusSender {
     let sender = this.senders.get(entity);
     if (!sender) {
-      sender = this.client.createSender(entity);
+      sender = this.clientFor(entity).createSender(entity);
       this.senders.set(entity, sender);
     }
     return sender;
@@ -71,8 +92,8 @@ export class Bus {
 
   createReceiver(source: ReceiveSource, options?: ServiceBusReceiverOptions): ServiceBusReceiver {
     return source.kind === "queue"
-      ? this.client.createReceiver(source.queue!, options)
-      : this.client.createReceiver(source.topic!, source.subscription!, options);
+      ? this.clientFor(source.queue!).createReceiver(source.queue!, options)
+      : this.clientFor(source.topic!).createReceiver(source.topic!, source.subscription!, options);
   }
 
   async send(req: SendRequest): Promise<MessageView[]> {
@@ -138,7 +159,8 @@ export class Bus {
 
   async close(): Promise<void> {
     await Promise.allSettled([...this.senders.values()].map((s) => s.close()));
-    await this.client.close();
+    const clients = [...this.entityClients.values(), ...(this.namespaceClient ? [this.namespaceClient] : [])];
+    await Promise.allSettled(clients.map((c) => c.close()));
   }
 }
 

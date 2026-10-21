@@ -56,7 +56,11 @@ Open http://localhost:3000.
 The tabs at the top switch between environments:
 
 - **Local (emulator)** is always there: the emulator from `emulator/config.json`, with mock responders, purge, config editing and the Docker/Podman controls.
-- **+ Add environment** connects a real Azure Service Bus namespace (e.g. QA) with a namespace-level connection string. Queues, topics and subscriptions are listed through the management API, so the connection string needs **Manage** rights. The list shows active and dead-lettered message counts; **Refresh** updates them.
+- **+ Add environment** connects a real Azure Service Bus namespace (e.g. QA). Paste one or more connection strings, one per line:
+  - A **namespace-level** string (no `EntityPath`) with **Manage** rights lists every queue, topic and subscription through the management API.
+  - A **queue-level** string ends in `;EntityPath=<queue>`. Its key only works for that queue, so add one line per queue you need (e.g. the request queue and the reply queue). Keep the `EntityPath` part: a queue-level key used without it fails with `InvalidSignature`.
+
+  The list shows active and dead-lettered message counts where the key allows reading them; **Refresh** updates them. A Send-only key can send but not peek.
 
 Real namespaces are **read-only**: you can send and peek, but responders and purge are disabled (the server refuses them too), so the mock never takes messages that real services need. Each tab has its own activity feed.
 

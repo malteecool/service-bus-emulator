@@ -152,9 +152,17 @@
           <h2 id="env-dialog-title">Add environment</h2>
         </div>
         <label>Name <input name="name" required placeholder="QA" /></label>
-        <label>Connection string
-          <input name="connectionString" type="password" autocomplete="off" spellcheck="false" placeholder="Endpoint=sb://&lt;namespace&gt;.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=..." />
-          <small class="muted" id="env-cs-hint">Namespace-level, with Manage rights so queues and topics can be listed. Stored only in app/environments.json (git-ignored).</small>
+        <div id="env-current" hidden>
+          <span class="muted">Current connection strings:</span>
+          <ul id="env-current-list"></ul>
+        </div>
+        <label>Connection strings, one per line
+          <textarea name="connectionStrings" rows="4" class="code" autocomplete="off" spellcheck="false" placeholder="Endpoint=sb://&lt;namespace&gt;.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=orders-request&#10;Endpoint=sb://&lt;namespace&gt;.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=orders-reply"></textarea>
+          <small class="muted">
+            Either a <strong>namespace-level</strong> string (with Manage rights it lists every queue and topic), or one
+            <strong>queue-level</strong> string per queue, ending in <code>;EntityPath=&lt;queue&gt;</code>. Keep EntityPath when your
+            key belongs to a specific queue. Stored only in app/environments.json (git-ignored).
+          </small>
         </label>
         <p id="env-form-error" class="err"></p>
         <div class="row">
