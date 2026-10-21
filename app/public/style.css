@@ -177,7 +177,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.4); }
 
 header #emulator { margin-left: auto; gap: 6px; }
 header #emulator .label { font-size: 12px; color: var(--muted); }
-header #emulator button { padding: 3px 9px; font-size: 12px; }
+header #emulator button, header #emulator select { padding: 3px 9px; font-size: 12px; }
 button:disabled { opacity: 0.5; cursor: default; filter: none; }
 .badge.busy { color: var(--warn); border-color: var(--warn); }
 @media (max-width: 1100px) {

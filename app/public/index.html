@@ -12,6 +12,11 @@
       <span id="conn" class="badge">connecting…</span>
       <div id="emulator" class="row">
         <span class="label">Emulator</span>
+        <select id="emu-engine" title="Container engine. Auto uses Docker if its daemon is running, otherwise Podman.">
+          <option value="auto">auto</option>
+          <option value="docker">docker</option>
+          <option value="podman">podman</option>
+        </select>
         <span id="emu-state" class="badge" title="">checking…</span>
         <button class="secondary" data-action="up">Start</button>
         <button class="secondary" data-action="down">Stop</button>

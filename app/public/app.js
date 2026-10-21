@@ -213,14 +213,14 @@ $("#peek-purge").addEventListener("click", async () => {
   await refreshPeek();
 });
 
-// ---------- Emulator (docker compose) ----------
+// ---------- Emulator (docker / podman compose) ----------
 
 const emuState = $("#emu-state");
 const emuButtons = document.querySelectorAll("#emulator [data-action]");
 
 function describeEmulator(s) {
   if (s.running) return { text: `${s.running}…`, cls: "busy" };
-  if (!s.dockerAvailable) return { text: "docker not running", cls: "err" };
+  if (!s.available) return { text: `${s.engine} not running`, cls: "err" };
   const emu = s.containers.find((c) => c.name === "servicebus-emulator");
   if (!emu) return { text: "not created", cls: "" };
   const sql = s.containers.find((c) => c.name === "sqledge");
@@ -237,10 +237,14 @@ async function refreshEmulator() {
     emuState.className = `badge ${cls}`;
     emuState.title = [
       s.error,
+      `engine: ${s.engine}${s.engineChoice === "auto" ? " (auto)" : ""}`,
       `compose: ${s.compose}`,
       ...s.containers.map((c) => `${c.name}: ${c.status}`),
     ].filter(Boolean).join("\n");
-    for (const btn of emuButtons) btn.disabled = !!s.running || !s.dockerAvailable;
+    for (const btn of emuButtons) btn.disabled = !!s.running || !s.available;
+    const engineSelect = $("#emu-engine");
+    if (document.activeElement !== engineSelect) engineSelect.value = s.engineChoice;
+    engineSelect.disabled = !!s.running;
   } catch (err) {
     emuState.textContent = "unknown";
     emuState.title = err.message;
@@ -266,6 +270,15 @@ async function pollEmulator() {
   const busy = emuState.classList.contains("busy");
   setTimeout(pollEmulator, busy ? 1500 : 5000);
 }
+
+$("#emu-engine").addEventListener("change", async (e) => {
+  try {
+    await api("/api/emulator/engine", { method: "PUT", body: JSON.stringify({ engine: e.target.value }) });
+  } catch (err) {
+    alert(err.message);
+  }
+  refreshEmulator();
+});
 
 const logsDialog = $("#logs-dialog");
 async function refreshLogs() {

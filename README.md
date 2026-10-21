@@ -9,7 +9,7 @@ Local setup for developing against Azure Service Bus without a real namespace:
 
 Copy `emulator/.env.example` to `emulator/.env`, then set `ACCEPT_EULA="Y"` and choose a strong `SQL_PASSWORD` (8+ characters from at least 3 of: uppercase, lowercase, digits, symbols). `.env` is git-ignored.
 
-Then either use the **Emulator** controls in the app's header (Start / Stop / Restart / Pull latest / Logs, see below), or run compose yourself:
+Then either use the **Emulator** controls in the app's header (Start / Stop / Restart / Pull latest / Logs; works with Docker or Podman, see below), or run compose yourself:
 
 ```bash
 docker compose -p microsoft-azure-servicebus-emulator -f emulator/docker-compose.yaml up -d
@@ -17,7 +17,14 @@ docker compose -p microsoft-azure-servicebus-emulator -f emulator/docker-compose
 
 The emulator listens for AMQP on `localhost:5672`. It reads `emulator/config.json` at startup, so restart it after changing entities (and restart the app too, so it picks up the new names).
 
-The app runs `docker compose` (Compose v2) if available, otherwise the standalone `docker-compose`. Containers are always created under the project name `microsoft-azure-servicebus-emulator`, so the app's controls and manual commands manage the same containers. The status badge shows container state plus the emulator's health endpoint on port 5300; hover over it for details. Command output appears in the activity feed.
+### Docker or Podman
+
+The app works with **Docker** or **Podman**. The engine selector in the header defaults to `auto`: Docker if its daemon responds, otherwise Podman. Set `CONTAINER_ENGINE=docker|podman` to choose at startup.
+
+- **Docker** uses `docker compose` (Compose v2) if available, otherwise the standalone `docker-compose`.
+- **Podman** uses `podman compose` (Podman 4.7+, which needs a provider such as podman-compose or docker-compose installed), otherwise `podman-compose`. On Windows and macOS, the Podman machine must be running (`podman machine start`).
+
+Status and logs use plain `docker`/`podman` commands on the fixed container names (`servicebus-emulator`, `sqledge`), so they work the same whichever compose tool created the containers. Containers are always created under the project name `microsoft-azure-servicebus-emulator`, so the app's controls and manual commands manage the same containers. The status badge shows container state plus the emulator's health endpoint on port 5300; hover over it for details. Command output appears in the activity feed.
 
 ## 2. Start the app
 
@@ -37,6 +44,7 @@ Open http://localhost:3000.
 | `EMULATOR_CONFIG` | `../emulator/config.json` | Where queue/topic names are read from |
 | `PORT` | `3000` | UI/API port |
 | `RESPONDERS_FILE` | `responders.json` | Saved responder defaults |
+| `CONTAINER_ENGINE` | `auto` | `docker`, `podman` or `auto` |
 | `EMULATOR_COMPOSE` | `../emulator/docker-compose.yaml` | Compose file used by the Emulator controls |
 | `EMULATOR_HTTP_PORT` | `5300` | Emulator health/management port |
 
@@ -92,7 +100,7 @@ The UI is a thin client over a JSON API, which is handy for scripts and tests:
 - `GET /api/peek?id=<source>&dlq=true|false`, `POST /api/purge?id=<source>&dlq=true|false`
 - `GET /api/activity`, `DELETE /api/activity`, `GET /api/events` (SSE)
 - `GET /api/config`, `GET /api/config/schema`, `POST /api/config/validate`, `PUT /api/config?apply=true|false`
-- `GET /api/emulator` (container status), `POST /api/emulator/up|down|restart|recreate|pull`, `GET /api/emulator/logs?service=emulator|sqledge`
+- `GET /api/emulator` (container status), `PUT /api/emulator/engine` with `{ engine: "auto"|"docker"|"podman" }`, `POST /api/emulator/up|down|restart|recreate|pull`, `GET /api/emulator/logs?service=emulator|sqledge`
 
 The server only listens on `127.0.0.1` and rejects cross-origin requests, since the API can run docker commands.
 

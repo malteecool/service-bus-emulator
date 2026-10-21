@@ -3,7 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { streamSSE } from "hono/streaming";
 import { errorMessage, peek, purge, send, type SendRequest } from "./bus.ts";
 import { getEntities, reloadEntities, settings } from "./config.ts";
-import * as docker from "./docker.ts";
+import * as containers from "./containers.ts";
 import { readConfig, schema, validateConfig, writeConfig, type EmulatorConfig } from "./emulator-config.ts";
 import { clearHistory, getHistory, record, subscribe, type Activity } from "./events.ts";
 import { getSource, listResponders, MODES, saveDefaults, syncResponders, updateResponder } from "./responders.ts";
@@ -57,12 +57,16 @@ export function createApp(): Hono {
     return c.json({ removed: await purge(source, c.req.query("dlq") === "true") });
   });
 
-  app.get("/api/emulator", async (c) => c.json(await docker.status()));
+  app.get("/api/emulator", async (c) => c.json(await containers.status()));
+  app.put("/api/emulator/engine", async (c) => {
+    await containers.setEngine((await c.req.json<{ engine: containers.EngineChoice }>()).engine);
+    return c.json(await containers.status());
+  });
   app.post("/api/emulator/:action", async (c) => {
-    await docker.run(c.req.param("action") as docker.Action);
+    await containers.run(c.req.param("action") as containers.Action);
     return c.json({ started: true }, 202);
   });
-  app.get("/api/emulator/logs", async (c) => c.text(await docker.logs(c.req.query("service"))));
+  app.get("/api/emulator/logs", async (c) => c.text(await containers.logs(c.req.query("service"))));
 
   app.get("/api/config", (c) => c.json(readConfig()));
   app.get("/api/config/schema", (c) => c.json(schema));
@@ -75,7 +79,7 @@ export function createApp(): Hono {
     await syncResponders(reloadEntities().sources);
     record("info", "config", "emulator config saved");
     const apply = c.req.query("apply") === "true";
-    if (apply) await docker.run("recreate");
+    if (apply) await containers.run("recreate");
     return c.json({ ...result, saved: true, applying: apply });
   });
 
